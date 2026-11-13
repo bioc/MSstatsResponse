@@ -268,6 +268,40 @@ test_that("fitIsotonicRegression handles NA values", {
   )
 })
 
+test_that("fitIsotonicRegression returns NA (not NaN) when the F-test is undefined", {
+  # One observation per dose -> no residual df (df_full = 0). With a perfect
+  # monotone fit, SSE_Full = 0 and the old formula gave 0/0 = NaN.
+  fit <- fitIsotonicRegression(x = c(0, 1e-7, 2.8e-5), y = c(4.5, 2.2, 1.8),
+                               increasing = FALSE, test_significance = TRUE)
+  expect_true(is.na(fit$f_test$F_statistic))
+  expect_false(is.nan(fit$f_test$F_statistic))
+  expect_true(is.na(fit$f_test$P_value))
+})
+
+test_that("doseResponseFit increasing = 'both' does not fail on an undefined F-statistic", {
+  # P_sparse is measured in one well per dose (like a protein seen in only a
+  # few wells), so its F is undefined in both directions. This used to stop the
+  # whole run with "missing value where TRUE/FALSE needed".
+  test_data <- rbind(
+    create_test_protein_data(),
+    data.frame(protein = "P_sparse", drug = c("DMSO", "Drug1", "Drug1"),
+               dose = c(0, 1e-9, 1e-7), response = c(4.5, 2.2, 1.8))
+  )
+
+  results <- doseResponseFit(data = test_data, increasing = "both")
+
+  expect_setequal(results$Protein, c("P1", "P2", "P3", "P_sparse"))
+  expect_equal(sum(results$Protein == "P_sparse"), 1)
+  sparse <- results[results$Protein == "P_sparse", ]
+  expect_true(is.na(sparse$F_statistic))
+  expect_true(is.na(sparse$P_value))
+  expect_false("F_statistic_alt" %in% names(results))
+
+  # Proteins with a defined F still get a direction and a p-value
+  expect_true(all(!is.na(results$P_value[results$Protein != "P_sparse"])))
+  expect_equal(results$direction[results$Protein == "P1"], "decreasing")
+})
+
 test_that("doseResponseFit empty results carry the same columns as populated ones", {
   # doseResponseFit has two separate early returns for "nothing to report".
   # A column rename once updated the populated path and only one of the two,

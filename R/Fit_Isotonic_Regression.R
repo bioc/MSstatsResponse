@@ -293,7 +293,12 @@ doseResponseFit = function(data, weights = NULL,
             dec_row = prot_rows[prot_rows$direction == "decreasing", ]
             inc_row = prot_rows[prot_rows$direction == "increasing", ]
 
-            if (dec_row$F_statistic >= inc_row$F_statistic) {
+            # NA-safe: an undefined F (see fitIsotonicRegression) loses to a
+            # defined one; if both are NA, keep the decreasing row (F/P = NA).
+            # Ties still go to decreasing.
+            dec_F = dec_row$F_statistic
+            inc_F = inc_row$F_statistic
+            if (is.na(inc_F) || (!is.na(dec_F) && dec_F >= inc_F)) {
               selected_row = dec_row
             } else {
               selected_row = inc_row
@@ -488,8 +493,17 @@ fitIsotonicRegression = function(x, y, w = rep(1, length(y)),
     sse_null = sum((y - null_pred)^2)
     df_full = length(y) - length(unique(x))
     df_null = length(y) - 1
-    f_stat = ((sse_null - sse_full) / (df_null - df_full)) / (sse_full / df_full)
-    p_value = 1 - stats::pf(f_stat, df_null - df_full, df_full)
+    df_num = df_null - df_full
+    if (df_num >= 1 && df_full >= 1) {
+      f_stat = (sse_null - sse_full) / df_num / (sse_full / df_full)
+      p_value = 1 - stats::pf(f_stat, df_num, df_full)
+    } else {
+      # F-test undefined: no residual df (one observation per dose, e.g. a
+      # protein measured in only a few wells) or only one dose level.
+      # Previously this gave 0/0 = NaN.
+      f_stat = NA_real_
+      p_value = NA_real_
+    }
     f_res = data.frame(
       SSE_Full = sse_full,
       SSE_Null = sse_null,
